@@ -1,15 +1,12 @@
 'use client';
 
-import { Tool } from '@/types/tools';
 import { useEffect, useRef } from 'react';
+import { Tool } from '@/types/tools';
+import { useEditorStore } from '@/store/useEditorStore';
+import { Shape } from '@/types/shapes';
+import { nanoid } from 'nanoid';
 
 type Point = { x: number; y: number };
-
-const MIN_DIST_SQ = 4; // point sampling threshold
-
-interface DrawingCanvasProps {
-    tool: Tool;
-}
 
 type Rectangle = {
     x: number;
@@ -18,24 +15,52 @@ type Rectangle = {
     h: number;
 };
 
+const MIN_DIST_SQ = 4;
 
+interface DrawingCanvasProps {
+    tool: Tool;
+}
 
 export default function DrawingCanvas({ tool }: DrawingCanvasProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
-
-    const isDrawingRef = useRef(false);
-    const currentPathRef = useRef<Point[]>([]);
-    const pathsRef = useRef<Point[][]>([]);
     const rafRef = useRef<number | null>(null);
 
+    // live drawing refs (performance)
+    const isDrawingRef = useRef(false);
+    const currentPathRef = useRef<Point[]>([]);
     const startPointRef = useRef<Point | null>(null);
     const currentRectRef = useRef<Rectangle | null>(null);
 
-    const rectanglesRef = useRef<Rectangle[]>([]);
+    // Zustand
+    const shapes = useEditorStore((s) => s.shapes);
+    const addShape = useEditorStore((s) => s.addShape);
+    const undo = useEditorStore((s) => s.undo);
+    const redo = useEditorStore((s) => s.redo);
 
+    // ---------------------------------
+    // Keyboard shortcuts
+    // ---------------------------------
+    useEffect(() => {
+        function onKeyDown(e: KeyboardEvent) {
+            if (e.ctrlKey && e.key === 'z') {
+                e.preventDefault();
+                undo();
+            }
 
-    // ✅ Setup canvas once
+            if (e.ctrlKey && (e.key === 'y' || e.key === 'Z')) {
+                e.preventDefault();
+                redo();
+            }
+        }
+
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [undo, redo]);
+
+    // ---------------------------------
+    // Canvas setup (DPI safe)
+    // ---------------------------------
     useEffect(() => {
         const canvas = canvasRef.current!;
         const ctx = canvas.getContext('2d')!;
@@ -48,43 +73,20 @@ export default function DrawingCanvas({ tool }: DrawingCanvasProps) {
         canvas.height = rect.height * dpr;
 
         ctx.scale(dpr, dpr);
-
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.lineWidth = 2;
         ctx.strokeStyle = '#000';
     }, []);
 
-function queueDraw() {
-  if (rafRef.current !== null) return;
-
-  rafRef.current = requestAnimationFrame(() => {
-    rafRef.current = null;
-
-    const ctx = ctxRef.current!;
-    const canvas = canvasRef.current!;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // draw committed shapes
-    pathsRef.current.forEach((p) => drawPath(ctx, p));
-    rectanglesRef.current.forEach((r) =>
-      ctx.strokeRect(r.x, r.y, r.w, r.h)
-    );
-
-    // draw live shape
-    if (tool === 'pencil') {
-      drawPath(ctx, currentPathRef.current);
-    }
-
-    if (tool === 'rectangle') {
-      drawLiveRectangle();
-    }
-  });
-}
+    // ---------------------------------
+    // Redraw when Zustand changes
+    // ---------------------------------
 
 
-
+    // ---------------------------------
+    // Helpers
+    // ---------------------------------
     function getMousePos(e: React.MouseEvent<HTMLCanvasElement>): Point {
         const rect = canvasRef.current!.getBoundingClientRect();
         return { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -97,13 +99,51 @@ function queueDraw() {
         return dx * dx + dy * dy > MIN_DIST_SQ;
     }
 
-    // ✅ Draw ONLY current stroke (no clear)
-    function drawLiveStroke() {
-        rafRef.current = null;
-        const ctx = ctxRef.current!;
-        drawPath(ctx, currentPathRef.current);
+    function queueDraw() {
+        if (rafRef.current !== null) return;
+
+        rafRef.current = requestAnimationFrame(() => {
+            rafRef.current = null;
+            redrawAll();
+        });
     }
 
+    function redrawAll() {
+        const ctx = ctxRef.current!;
+        const canvas = canvasRef.current!;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // committed shapes (Zustand)
+        for (const shape of shapes) {
+            if (shape.type === 'pencil') {
+                drawPath(ctx, shape.points);
+            }
+
+            if (shape.type === 'rectangle') {
+                ctx.strokeRect(shape.x, shape.y, shape.w, shape.h);
+            }
+        }
+
+        // live preview
+        if (tool === 'pencil') {
+            drawPath(ctx, currentPathRef.current);
+        }
+
+        if (tool === 'rectangle' && currentRectRef.current) {
+            const r = currentRectRef.current;
+            ctx.strokeRect(r.x, r.y, r.w, r.h);
+        }
+    }
+
+
+    useEffect(() => {
+        redrawAll();
+    }, [shapes]);
+
+    // ---------------------------------
+    // Mouse handlers
+    // ---------------------------------
     function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
         const point = getMousePos(e);
         isDrawingRef.current = true;
@@ -123,7 +163,6 @@ function queueDraw() {
         }
     }
 
-
     function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
         if (!isDrawingRef.current) return;
         const point = getMousePos(e);
@@ -136,8 +175,8 @@ function queueDraw() {
             queueDraw();
         }
 
-       if (tool === 'rectangle' && startPointRef.current) {
-        const start = startPointRef.current;
+        if (tool === 'rectangle' && startPointRef.current) {
+            const start = startPointRef.current;
             currentRectRef.current = {
                 x: start.x,
                 y: start.y,
@@ -152,48 +191,38 @@ function queueDraw() {
         if (!isDrawingRef.current) return;
         isDrawingRef.current = false;
 
-        if (tool === 'pencil') {
-            pathsRef.current.push([...currentPathRef.current]);
+        // commit pencil
+        if (tool === 'pencil' && currentPathRef.current.length > 1) {
+            const pencilShape: Shape = {
+                id: nanoid(),
+                type: 'pencil',
+                points: [...currentPathRef.current],
+            };
+
+            addShape(pencilShape);
             currentPathRef.current = [];
         }
 
+        // commit rectangle
         if (tool === 'rectangle' && currentRectRef.current) {
-            rectanglesRef.current.push({ ...currentRectRef.current });
+            const r = currentRectRef.current;
+
+            const rectShape: Shape = {
+                id: nanoid(),
+                type: 'rectangle',
+                x: r.x,
+                y: r.y,
+                w: r.w,
+                h: r.h,
+            };
+
+            addShape(rectShape);
             currentRectRef.current = null;
             startPointRef.current = null;
         }
 
         redrawAll();
     }
-
-
-    function redrawAll() {
-        const ctx = ctxRef.current!;
-        const canvas = canvasRef.current!;
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        pathsRef.current.forEach((p) => drawPath(ctx, p));
-
-        rectanglesRef.current.forEach((r) => {
-            ctx.strokeRect(r.x, r.y, r.w, r.h);
-        });
-
-        if (currentRectRef.current) {
-            const r = currentRectRef.current;
-            ctx.strokeRect(r.x, r.y, r.w, r.h);
-        }
-    }
-
-    function drawLiveRectangle() {
-  const ctx = ctxRef.current!;
-  const rect = currentRectRef.current;
-  if (!rect) return;
-
-  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-}
-
-
 
     return (
         <canvas
@@ -208,6 +237,9 @@ function queueDraw() {
     );
 }
 
+// ---------------------------------
+// Drawing utils
+// ---------------------------------
 function drawPath(ctx: CanvasRenderingContext2D, path: Point[]) {
     if (path.length < 2) return;
 
