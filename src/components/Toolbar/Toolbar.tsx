@@ -5,6 +5,7 @@ import { Tool } from '@/types/tools';
 interface ToolbarProps {
   activeTool: Tool;
   onToolChange: (tool: Tool) => void;
+  onExportPNG: () => void;
 }
 
 const tools: { tool: Tool; label: string }[] = [
@@ -22,6 +23,7 @@ const tools: { tool: Tool; label: string }[] = [
 export default function Toolbar({
   activeTool,
   onToolChange,
+  onExportPNG, // ✅ FIXED
 }: ToolbarProps) {
   return (
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50">
@@ -40,6 +42,14 @@ export default function Toolbar({
             {label}
           </button>
         ))}
+
+        {/* Export PNG */}
+        <button
+          onClick={onExportPNG}
+          className="ml-2 px-3 py-1 rounded-lg text-sm border hover:bg-gray-100"
+        >
+          Export PNG
+        </button>
       </div>
     </div>
   );
