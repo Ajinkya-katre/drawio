@@ -5,8 +5,10 @@ import DrawingCanvas from '@/components/Canvas/DrawingCanvas';
 import Toolbar from '@/components/Toolbar/Toolbar';
 import { Tool } from '@/types/tools';
 import { useEditorStore } from '@/store/useEditorStore';
+import type { DrawingCanvasHandle } from '@/components/Canvas/DrawingCanvas';
 
 export default function Home() {
+  const canvasRef = useRef<DrawingCanvasHandle>(null);
   const [tool, setTool] = useState<Tool>('pencil');
 
   const connectRoom = useEditorStore((s) => s.connectRoom);
@@ -14,28 +16,49 @@ export default function Home() {
   const shapes = useEditorStore((s) => s.shapes);
   const save = useEditorStore((s) => s.save);
 
-  // 🔐 Guards
+  // Guards
   const hasLoadedFromDB = useRef(false);
   const hasConnectedRealtime = useRef(false);
 
-  // 1️⃣ LOAD FROM DATABASE FIRST (CRITICAL)
+  // -----------------------------
+  // Export PNG
+  // -----------------------------
+  function handleExportPNG() {
+    canvasRef.current?.exportPNG();
+  }
+
+  // -----------------------------
+  // 1️⃣ Load persisted drawing
+  // -----------------------------
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
       await load('demo-room');
-      hasLoadedFromDB.current = true;
+      if (mounted) {
+        hasLoadedFromDB.current = true;
+      }
     })();
+
+    return () => {
+      mounted = false;
+    };
   }, [load]);
 
-  // 2️⃣ CONNECT REALTIME ONLY AFTER DB LOAD
+  // -----------------------------
+  // 2️⃣ Connect realtime AFTER load
+  // -----------------------------
   useEffect(() => {
     if (!hasLoadedFromDB.current) return;
     if (hasConnectedRealtime.current) return;
 
     connectRoom('demo-room');
     hasConnectedRealtime.current = true;
-  }, [connectRoom]);
+  }, [connectRoom, shapes.length]); // 👈 ensures sync happens once after load
 
-  // 3️⃣ AUTO-SAVE (ONLY AFTER DB LOAD)
+  // -----------------------------
+  // 3️⃣ Auto-save (debounced)
+  // -----------------------------
   useEffect(() => {
     if (!hasLoadedFromDB.current) return;
     if (shapes.length === 0) return;
@@ -49,8 +72,13 @@ export default function Home() {
 
   return (
     <main className="w-screen h-screen bg-gray-100">
-      <Toolbar activeTool={tool} onToolChange={setTool} />
-      <DrawingCanvas tool={tool} />
+      <Toolbar
+        activeTool={tool}
+        onToolChange={setTool}
+        onExportPNG={handleExportPNG}
+      />
+
+      <DrawingCanvas ref={canvasRef} tool={tool} />
     </main>
   );
 }
