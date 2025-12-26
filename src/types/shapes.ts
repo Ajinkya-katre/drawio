@@ -18,4 +18,15 @@ export type RectangleShape = {
   h: number;
 };
 
-export type Shape = PencilShape | RectangleShape;
+export type LineShape = {
+  id: string;
+  type: 'line';
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+};
+
+export type Shape = PencilShape | RectangleShape | LineShape;
+
+
