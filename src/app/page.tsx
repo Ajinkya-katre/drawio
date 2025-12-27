@@ -27,6 +27,11 @@ export default function Home() {
     canvasRef.current?.exportPNG();
   }
 
+  function handleExportSVG() {
+  canvasRef.current?.exportSVG();
+}
+
+
   // -----------------------------
   // 1️⃣ Load persisted drawing
   // -----------------------------
@@ -76,6 +81,7 @@ export default function Home() {
         activeTool={tool}
         onToolChange={setTool}
         onExportPNG={handleExportPNG}
+        onExportSVG={handleExportSVG}
       />
 
       <DrawingCanvas ref={canvasRef} tool={tool} />
