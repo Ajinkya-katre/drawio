@@ -38,13 +38,17 @@ const DrawingCanvas = forwardRef<
     { x1: number; y1: number; x2: number; y2: number } | null
   >(null);
 
-  // ❗ MISSING BEFORE — REQUIRED
   const startPointRef = useRef<{ x: number; y: number } | null>(null);
   const startLinePointRef = useRef<{ x: number; y: number } | null>(null);
+  const startCirclePointRef = useRef<{ x: number; y: number } | null>(null);
+  const currentCirclePointRef = useRef<
+    { cx: number; cy: number; r: number } | null
+  >(null);
 
   // Zustand
   const shapes = useEditorStore((s) => s.shapes);
   const addShape = useEditorStore((s) => s.addShape);
+  const removeShape = useEditorStore((s) => s.removeShape); // ✅ FIX
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
 
@@ -66,11 +70,12 @@ const DrawingCanvas = forwardRef<
         path: currentPathRef.current,
         rect: currentRectRef.current ?? undefined,
         line: currentLineRef.current ?? undefined,
+        circle: currentCirclePointRef.current ?? undefined,
       });
     });
   }
 
-  // 🔴 REQUIRED: render on load / shape change
+  // Render on load / shape change
   useEffect(() => {
     if (!ctxRef.current || !canvasRef.current) return;
 
@@ -78,6 +83,7 @@ const DrawingCanvas = forwardRef<
       path: currentPathRef.current,
       rect: currentRectRef.current ?? undefined,
       line: currentLineRef.current ?? undefined,
+      circle: currentCirclePointRef.current ?? undefined,
     });
   }, [shapes, tool]);
 
@@ -110,7 +116,7 @@ const DrawingCanvas = forwardRef<
   }));
 
   // ---------------------------------
-  // Mouse events (EXTRACTED)
+  // Mouse events
   // ---------------------------------
   const {
     handleMouseDown,
@@ -124,9 +130,13 @@ const DrawingCanvas = forwardRef<
     currentPathRef,
     currentRectRef,
     currentLineRef,
+    currentCirclePointRef,
+    startCirclePointRef,
     startPointRef,
     startLinePointRef,
     addShape,
+    removeShape, // ✅ FIX
+    shapes,
   });
 
   return (

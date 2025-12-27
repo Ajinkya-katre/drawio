@@ -24,5 +24,7 @@ export function useCanvasSetup(
     ctx.lineJoin = 'round';
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#000';
+    ctx.font = '16px Inter, sans-serif';
+
   }, []);
 }

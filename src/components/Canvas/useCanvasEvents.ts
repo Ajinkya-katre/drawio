@@ -20,15 +20,100 @@ interface Params {
   isDrawingRef: React.MutableRefObject<boolean>;
   currentPathRef: React.MutableRefObject<Point[]>;
   currentRectRef: React.MutableRefObject<Rectangle | null>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  currentLineRef: React.MutableRefObject<any | null>;
+  currentLineRef: React.MutableRefObject<
+    { x1: number; y1: number; x2: number; y2: number } | null
+  >;
   startPointRef: React.MutableRefObject<Point | null>;
   startLinePointRef: React.MutableRefObject<Point | null>;
 
+  currentCirclePointRef: React.MutableRefObject<
+    { cx: number; cy: number; r: number } | null
+  >;
+  startCirclePointRef: React.MutableRefObject<Point | null>;
+
+  shapes: Shape[];
   addShape: (shape: Shape) => void;
+  removeShape: (id: string) => void;
 }
 
 const MIN_DIST_SQ = 4;
+const ERASE_TOLERANCE = 6;
+
+/* ---------------- HIT TEST HELPERS ---------------- */
+
+function distToSegment(p: Point, a: Point, b: Point) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+
+  if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+
+  const px = a.x + t * dx;
+  const py = a.y + t * dy;
+  return Math.hypot(p.x - px, p.y - py);
+}
+
+function hitTest(shape: Shape, point: Point): boolean {
+  if (shape.type === 'rectangle') {
+    return (
+      point.x >= shape.x &&
+      point.x <= shape.x + shape.w &&
+      point.y >= shape.y &&
+      point.y <= shape.y + shape.h
+    );
+  }
+
+  if (shape.type === 'circle') {
+    return (
+      Math.hypot(point.x - shape.cx, point.y - shape.cy) <=
+      shape.r + ERASE_TOLERANCE
+    );
+  }
+
+  if (shape.type === 'line' || shape.type === 'arrow') {
+    return (
+      distToSegment(
+        point,
+        { x: shape.x1, y: shape.y1 },
+        { x: shape.x2, y: shape.y2 }
+      ) <= ERASE_TOLERANCE
+    );
+  }
+
+  if (shape.type === 'pencil') {
+    for (let i = 1; i < shape.points.length; i++) {
+      if (
+        distToSegment(
+          point,
+          shape.points[i - 1],
+          shape.points[i]
+        ) <= ERASE_TOLERANCE
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (shape.type === 'text') {
+    // Approximate bounding box
+    const width = shape.text.length * 8;
+    const height = 16;
+    return (
+      point.x >= shape.x &&
+      point.x <= shape.x + width &&
+      point.y <= shape.y &&
+      point.y >= shape.y - height
+    );
+  }
+
+  return false;
+}
+
+/* ---------------- MAIN HOOK ---------------- */
 
 export function useCanvasEvents({
   tool,
@@ -38,9 +123,13 @@ export function useCanvasEvents({
   currentPathRef,
   currentRectRef,
   currentLineRef,
+  currentCirclePointRef,
+  startCirclePointRef,
   startPointRef,
   startLinePointRef,
+  shapes,
   addShape,
+  removeShape,
 }: Params) {
   function getMousePos(
     e: React.MouseEvent<HTMLCanvasElement>
@@ -52,37 +141,41 @@ export function useCanvasEvents({
     };
   }
 
-  function shouldAddPoint(
-    last: Point | undefined,
-    next: Point
-  ) {
+  function shouldAddPoint(last: Point | undefined, next: Point) {
     if (!last) return true;
     const dx = last.x - next.x;
     const dy = last.y - next.y;
     return dx * dx + dy * dy > MIN_DIST_SQ;
   }
 
-  function handleMouseDown(
-    e: React.MouseEvent<HTMLCanvasElement>
-  ) {
+  function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
     const point = getMousePos(e);
     isDrawingRef.current = true;
 
-    if (tool === 'pencil') {
-      currentPathRef.current = [point];
+    /* -------- ERASER -------- */
+    if (tool === 'eraser') {
+      const hit = [...shapes]
+        .reverse()
+        .find((shape) => hitTest(shape, point));
+
+      if (hit) {
+        removeShape(hit.id);
+        queueDraw();
+      }
+
+      isDrawingRef.current = false;
+      return;
     }
+
+    /* -------- DRAW TOOLS -------- */
+    if (tool === 'pencil') currentPathRef.current = [point];
 
     if (tool === 'rectangle') {
       startPointRef.current = point;
-      currentRectRef.current = {
-        x: point.x,
-        y: point.y,
-        w: 0,
-        h: 0,
-      };
+      currentRectRef.current = { x: point.x, y: point.y, w: 0, h: 0 };
     }
 
-    if (tool === 'line') {
+    if (tool === 'line' || tool === 'arrow') {
       startLinePointRef.current = point;
       currentLineRef.current = {
         x1: point.x,
@@ -91,11 +184,32 @@ export function useCanvasEvents({
         y2: point.y,
       };
     }
+
+    if (tool === 'circle') {
+      startCirclePointRef.current = point;
+      currentCirclePointRef.current = {
+        cx: point.x,
+        cy: point.y,
+        r: 0,
+      };
+    }
+
+    if (tool === 'text') {
+      const text = prompt('Enter text');
+      if (!text) return;
+
+      addShape({
+        id: nanoid(),
+        type: 'text',
+        x: point.x,
+        y: point.y,
+        text,
+      });
+      isDrawingRef.current = false;
+    }
   }
 
-  function handleMouseMove(
-    e: React.MouseEvent<HTMLCanvasElement>
-  ) {
+  function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
     if (!isDrawingRef.current) return;
 
     const point = getMousePos(e);
@@ -103,29 +217,38 @@ export function useCanvasEvents({
     if (tool === 'pencil') {
       const last = currentPathRef.current.at(-1);
       if (!shouldAddPoint(last, point)) return;
-
       currentPathRef.current.push(point);
       queueDraw();
     }
 
     if (tool === 'rectangle' && startPointRef.current) {
-      const start = startPointRef.current;
+      const s = startPointRef.current;
       currentRectRef.current = {
-        x: start.x,
-        y: start.y,
-        w: point.x - start.x,
-        h: point.y - start.y,
+        x: s.x,
+        y: s.y,
+        w: point.x - s.x,
+        h: point.y - s.y,
       };
       queueDraw();
     }
 
-    if (tool === 'line' && startLinePointRef.current) {
-      const start = startLinePointRef.current;
+    if ((tool === 'line' || tool === 'arrow') && startLinePointRef.current) {
+      const s = startLinePointRef.current;
       currentLineRef.current = {
-        x1: start.x,
-        y1: start.y,
+        x1: s.x,
+        y1: s.y,
         x2: point.x,
         y2: point.y,
+      };
+      queueDraw();
+    }
+
+    if (tool === 'circle' && startCirclePointRef.current) {
+      const s = startCirclePointRef.current;
+      currentCirclePointRef.current = {
+        cx: s.x,
+        cy: s.y,
+        r: Math.hypot(point.x - s.x, point.y - s.y),
       };
       queueDraw();
     }
@@ -136,46 +259,36 @@ export function useCanvasEvents({
     isDrawingRef.current = false;
 
     if (tool === 'pencil' && currentPathRef.current.length > 1) {
-      addShape({
-        id: nanoid(),
-        type: 'pencil',
-        points: [...currentPathRef.current],
-      });
+      addShape({ id: nanoid(), type: 'pencil', points: [...currentPathRef.current] });
       currentPathRef.current = [];
     }
 
     if (tool === 'rectangle' && currentRectRef.current) {
-      const r = currentRectRef.current;
-      addShape({
-        id: nanoid(),
-        type: 'rectangle',
-        x: r.x,
-        y: r.y,
-        w: r.w,
-        h: r.h,
-      });
+      addShape({ id: nanoid(), type: 'rectangle', ...currentRectRef.current });
       currentRectRef.current = null;
       startPointRef.current = null;
     }
 
-    if (tool === 'line' && currentLineRef.current) {
-      const l = currentLineRef.current;
+    if ((tool === 'line' || tool === 'arrow') && currentLineRef.current) {
       addShape({
         id: nanoid(),
-        type: 'line',
-        x1: l.x1,
-        y1: l.y1,
-        x2: l.x2,
-        y2: l.y2,
+        type: tool,
+        ...currentLineRef.current,
       });
       currentLineRef.current = null;
       startLinePointRef.current = null;
     }
+
+    if (tool === 'circle' && currentCirclePointRef.current) {
+      addShape({
+        id: nanoid(),
+        type: 'circle',
+        ...currentCirclePointRef.current,
+      });
+      currentCirclePointRef.current = null;
+      startCirclePointRef.current = null;
+    }
   }
 
-  return {
-    handleMouseDown,
-    handleMouseMove,
-    handleMouseUp,
-  };
+  return { handleMouseDown, handleMouseMove, handleMouseUp };
 }

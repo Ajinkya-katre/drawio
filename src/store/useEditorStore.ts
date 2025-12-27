@@ -19,7 +19,7 @@ interface EditorState {
     roomId: string;
     save: () => Promise<void>;
     load: (roomId: string) => Promise<void>;
-
+    removeShape: (id: string) => void;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -92,5 +92,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             set({ shapes });
         }
     },
+
+    removeShape: (id: string) =>
+    set((state) => ({
+        shapes: state.shapes.filter((s) => s.id !== id),
+    })),
 
 }));
