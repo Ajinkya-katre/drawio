@@ -34,6 +34,7 @@ interface Params {
   shapes: Shape[];
   addShape: (shape: Shape) => void;
   removeShape: (id: string) => void;
+  setTextInput: React.Dispatch<React.SetStateAction<{ x: number; y: number } | null>>;
 }
 
 const MIN_DIST_SQ = 4;
@@ -130,6 +131,7 @@ export function useCanvasEvents({
   shapes,
   addShape,
   removeShape,
+  setTextInput,
 }: Params) {
   function getMousePos(
     e: React.MouseEvent<HTMLCanvasElement>
@@ -195,18 +197,10 @@ export function useCanvasEvents({
     }
 
     if (tool === 'text') {
-      const text = prompt('Enter text');
-      if (!text) return;
-
-      addShape({
-        id: nanoid(),
-        type: 'text',
-        x: point.x,
-        y: point.y,
-        text,
-      });
-      isDrawingRef.current = false;
-    }
+        setTextInput({ x: point.x, y: point.y });
+        isDrawingRef.current = false;
+        return;
+        }
   }
 
   function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
@@ -288,6 +282,7 @@ export function useCanvasEvents({
       currentCirclePointRef.current = null;
       startCirclePointRef.current = null;
     }
+    
   }
 
   return { handleMouseDown, handleMouseMove, handleMouseUp };
