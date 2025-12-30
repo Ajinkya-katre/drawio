@@ -78,8 +78,10 @@ export function renderCanvas(
         }
 
         if (shape.type === 'text') {
-            ctx.fillText(shape.text, shape.x, shape.y);
-        }
+  ctx.font = '16px sans-serif';
+  ctx.fillStyle = 'black';
+  ctx.fillText(shape.text, shape.x, shape.y);
+}
 
     }
 
